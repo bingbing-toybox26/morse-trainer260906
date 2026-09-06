@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#182b2b">
+<meta name="description" content="短く押して点、長く押して線。音と光るツリーで英字のモールス信号を練習。PC・スマートフォンで使える、無料のモールス練習室。">
+<link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./assets/icon-192.png">
+<link rel="manifest" href="./manifest.webmanifest">
+<title>MORSE ROOM — モールス練習室</title>
+<link rel="stylesheet" href="./assets/styles.css">
+</head>
+<body data-mode="free">
+<a class="skip-link" href="#practicePanel">練習へスキップ</a>
+<noscript>
+<p class="notice">練習するには、ブラウザのJavaScriptを有効にしてください。</p>
+</noscript>
+<header>
+<div class="brand">
+<div class="brand-icon" aria-hidden="true">·−</div>
+<div>
+<div class="brand-name">MORSE ROOM</div>
+<div class="brand-sub">モールス練習室</div>
+</div>
+</div>
+<div class="header-note">
+<span class="status-dot">
+</span>
+<span id="offlineStatus">国際モールス · A–Z</span>
+</div>
+</header>
+<main>
+<section class="intro">
+<div>
+<div class="eyebrow">LISTEN. TAP. REMEMBER.</div>
+<h1>音を打つ。かたちで覚える。</h1>
+<p>短く押して「・」、長く押して「－」。光の道をたどって、モールスを自分のものに。</p>
+</div>
+<div class="intro-code" aria-hidden="true">−− ·−· ···</div>
+</section>
+<div class="toolbar">
+<div class="tabs" role="tablist" aria-label="練習モード">
+<button class="tab active" role="tab" aria-controls="practicePanel" aria-selected="true" id="tab-free" data-mode="free">
+<span>01</span>自由入力</button>
+<button class="tab" role="tab" aria-controls="practicePanel" aria-selected="false" id="tab-send" data-mode="send">
+<span>02</span>送信練習</button>
+<button class="tab" role="tab" aria-controls="practicePanel" aria-selected="false" id="tab-receive" data-mode="receive">
+<span>03</span>受信練習</button>
+</div>
+<label class="switch-label">
+<input id="hideTree" type="checkbox">ツリーを隠す</label>
+</div>
+<div class="workspace">
+<section class="board" aria-label="モールス符号ツリー">
+<div class="board-top">
+<div>
+<div class="board-title">モールス符号ツリー</div>
+<div class="board-caption">光をたどって、文字を見つけよう</div>
+</div>
+<div class="legend">
+<span>
+<i>
+</i>短点 · 左へ</span>
+<span>
+<i class="dash">
+</i>長点 · 右へ</span>
+</div>
+</div>
+<div class="tree-area">
+<svg id="tree" viewBox="0 0 850 340" role="img" aria-label="国際モールス符号の英字ツリー。短点で左、長点で右へ進みます。">
+</svg>
+<div id="blindCover" class="blind-cover" hidden>
+<div class="blind-icon" aria-hidden="true">· − ·</div>
+<strong id="coverTitle">頭の中で、道をたどろう。</strong>
+<p id="coverDesc">ツリーを隠して練習中です。<br>音とリズムを頼りに入力してみましょう。</p>
+</div>
+</div>
+<div class="board-bottom">
+<div class="live">
+<span id="signalLed" class="led">
+</span>
+<span id="boardStatus">READY TO TRANSMIT</span>
+</div>
+<span>INTERNATIONAL MORSE / 26 LETTERS</span>
+</div>
+</section>
+<section class="side-panel" id="practicePanel" role="tabpanel" tabindex="-1" aria-label="練習パネル">
+<div class="panel-kicker">
+<span id="modeKicker">FREE PLAY</span>
+<span class="small-badge" id="modeBadge">自分のペースで</span>
+</div>
+<h2 id="panelTitle">まずは、打ってみよう。</h2>
+<p id="panelDesc" class="panel-desc">KEY またはスペースキーで音が鳴ります。<br>指を離すと、ツリーが一歩進みます。</p>
+<div class="readout">
+<div class="readout-label" id="readoutLabel">CURRENT LETTER</div>
+<div id="letter" class="big-letter">—</div>
+<div id="symbols" class="symbols" aria-label="入力した符号">···</div>
+</div>
+<label class="switch-label guide-toggle" id="guideRow" hidden>
+<input id="showGuide" type="checkbox" checked>お手本の符号を表示</label>
+<div id="feedback" class="feedback" role="status" aria-live="polite">短点・長点を組み合わせてみましょう。</div>
+<form id="answerForm" class="answer-form" hidden>
+<label for="answer" class="sr-only">聞こえた文字を A から Z で入力</label>
+<input id="answer" type="text" maxlength="1" placeholder="答えを A–Z で入力" autocomplete="off" autocapitalize="characters" spellcheck="false">
+<button type="submit" class="primary">回答</button>
+</form>
+<div class="actions">
+<button id="commitAction" class="secondary" hidden disabled>文字を確定 ↵</button>
+<button id="mainAction" class="primary">文字を確定 ↵</button>
+<button id="otherAction" class="secondary" hidden>次の問題 →</button>
+</div>
+<button id="revealAction" class="text-btn" hidden>答えを見る</button>
+<div id="stats" class="stats">
+<span>正解 <b id="correctCount">0</b>
+</span>
+<span>挑戦 <b id="attemptCount">0</b>
+</span>
+<span>正答率 <b id="accuracy">—</b>
+</span>
+</div>
+</section>
+</div>
+<div class="input-strip">
+<div class="key-zone">
+<div class="dock-readout">
+<span id="dockLetter">—</span>
+<span id="dockSymbols">短く ・ ／ 長く －</span>
+<span class="dock-label">入力</span>
+</div>
+<button id="keyButton" class="key-button" aria-label="モールス入力。短押しで短点、長押しで長点">
+<strong>KEY</strong>
+<span class="key-shortcut">SPACE</span><span class="touch-shortcut">短押し ・ ／ 長押し －</span>
+</button>
+<div class="key-hint">
+<strong id="keyTitle">押す長さで、音が変わる。</strong>
+<p id="keyHelp">短押し ・ ／ 長押し －<br>ひと呼吸おくと、1文字が確定します。</p>
+<div class="meter">
+<div class="meter-fill" id="holdMeter">
+</div>
+</div>
+</div>
+<div class="input-actions">
+<button id="dockCommit" class="secondary" disabled>確定 ↵</button>
+<button class="icon-btn" id="undoButton" title="1符号戻す（Backspace）" aria-label="1符号戻す">⌫</button>
+<button class="icon-btn" id="clearButton" title="入力をリセット（Esc）" aria-label="入力をリセット">↺</button>
+</div>
+</div>
+<div class="session-card">
+<div>
+<div class="label" id="sessionLabel">このセッションで打った文字</div>
+<strong id="sessionCount">00</strong>
+</div>
+<span class="session-icon" aria-hidden="true">⌁</span>
+</div>
+</div>
+<section class="transcript">
+<div class="section-line">
+<span class="section-label">YOUR SIGNALS <span style="letter-spacing:0;margin-left:9px">入力履歴</span>
+</span>
+<button class="text-btn" id="clearHistory">履歴をクリア</button>
+</div>
+<div class="history" id="history">
+<span class="history-placeholder">ここに、あなたが打った文字が並びます。</span>
+</div>
+</section>
+<details class="settings">
+<summary>調整と練習設定</summary>
+<div class="settings-grid">
+<div class="setting">
+<label for="threshold">長押しの境界 <output id="thresholdValue">
+</output>
+</label>
+<input id="threshold" type="range" min="120" max="400" step="10" value="180">
+<p>この時間以上押すと「－」になります。</p>
+</div>
+<div class="setting">
+<label for="gap">文字の確定まで <output id="gapValue">
+</output>
+</label>
+<input id="gap" type="range" min="400" max="2000" step="50" value="900">
+<p>指を離してから次の文字になるまで。</p>
+</div>
+<div class="setting">
+<label for="frequency">音の高さ <output id="frequencyValue">
+</output>
+</label>
+<input id="frequency" type="range" min="300" max="1000" step="25" value="600">
+<p>聞き取りやすい高さに調整できます。</p>
+</div>
+<div class="setting">
+<label for="volume">音量 <output id="volumeValue">
+</output>
+</label>
+<input id="volume" type="range" min="0" max="100" step="5" value="35">
+<p>0 にすると音を消して練習できます。</p>
+</div>
+</div>
+<div class="settings-extra">
+<label>出題範囲 <select id="pool">
+<option value="all">すべての英字 A–Z</option>
+<option value="basic">基本の6文字 E T I A N M</option>
+<option value="short">3符号までの14文字</option>
+</select>
+</label>
+<label>お手本・受信速度 <select id="speed">
+<option value="6">ゆっくり · 6 WPM</option>
+<option value="10" selected>標準 · 10 WPM</option>
+<option value="15">速め · 15 WPM</option>
+<option value="20">挑戦 · 20 WPM</option>
+</select>
+</label>
+<label class="switch-label">
+<input id="autoCommit" type="checkbox" checked>文字を自動で確定</label>
+</div>
+</details>
+<details class="help">
+<summary>使い方・オフライン利用</summary>
+<div class="help-content">
+<p>
+<strong>自由入力</strong>：KEY を短く押すと「・」、長く押すと「－」。初期設定では180 ms以上が長点になり、900 ms休むと1文字が確定します。「確定」でも区切れます。</p>
+<p>
+<strong>送信練習</strong>：表示された英字を打ちます。<strong>受信練習</strong>：音を聞き、A–Zで回答します。「調整と練習設定」で速さ・音量・出題範囲を変更できます。</p>
+<p>PCはSpaceで入力、Enterで確定、Backspaceで1符号戻す、Escでリセット。ボタンや設定にフォーカスがある間は通常のキー操作になります。KEYを選ぶか、画面の余白をクリックすると入力に戻れます。</p>
+<p>「オフライン利用可」が表示されたら、次回から同じURLを通信なしでも開けます。対応ブラウザのメニューからインストール、または「ホーム画面に追加」もできます。初回は通信が必要で、ブラウザの保存データを削除すると再読み込みが必要です。</p>
+<p>設定はこの端末のブラウザ内に保存します。成績・履歴はページを閉じると消えます。練習内容を送信する処理、ログイン、広告はありません。サイトを開く際は配信元への通信が発生し、配信事業者がアクセス情報を記録する場合があります。</p>
+<p id="updateNotice" hidden>新しいバージョンがあります。練習を終えたら、このアプリのタブをすべて閉じて開き直してください。</p>
+</div>
+</details>
+<footer>
+<span>SPACE：打つ　 ENTER：確定　 BACKSPACE：1符号戻す　 ESC：リセット<span class="mobile-tip">　／　小画面では短点・長点の枝を上下に表示します</span>
+</span>
+<span>音は最初の操作で有効になります · 設定はこのブラウザに保存</span>
+</footer>
+</main>
+<script src="./assets/app.js" defer>
+</script>
+<script src="./assets/offline.js" defer>
+</script>
+</body>
+</html>
