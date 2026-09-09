@@ -239,7 +239,7 @@ footer { font-size: 11px; }
   .guide-toggle { grid-column: 2; justify-content: flex-start; margin: 0; font-size: 11px; }
   .actions { margin-top: 0; flex-wrap: wrap; }
   .actions > button { flex: 1; min-width: 105px; }
-  .answer-form input, .settings-extra select { font-size: 16px; }
+  .answer-form input, .settings-extra select, .settings-extra input[type="number"] { font-size: 16px; }
   .board { min-height: 0; }
   .board-top { padding: 25px 16px 12px; flex-wrap: wrap; gap: 10px; }
   .board-caption { font-size: 11px; }
@@ -276,6 +276,9 @@ footer { font-size: 11px; }
   .dock-readout { flex-wrap: wrap; }
 }
 .touch-shortcut { display: none; }
+.settings-extra input[type="number"] { width: 76px; min-height: 44px; padding: 6px; border: 1px solid var(--line); border-radius: 5px; background: #fafaf5; color: var(--ink); font: inherit; }
+.timing-info { font-size: 12px; color: var(--muted); line-height: 1.8; margin: 0 0 16px; }
+.setting input:disabled { opacity: .5; }
 @media (max-width: 1000px) {
   .key-button .key-shortcut { display: none; }
   .key-button .touch-shortcut { display: inline; font-size: 11px; letter-spacing: 0; }

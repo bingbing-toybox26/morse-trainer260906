@@ -2,7 +2,7 @@
 
 // Bump VERSION whenever any file in SHELL changes. Updates wait until all app
 // tabs close, so code and assets cannot change in the middle of a practice round.
-const VERSION = 'v2';
+const VERSION = 'v3';
 const PREFIX = 'morse-room:' + self.registration.scope + ':';
 const CACHE = PREFIX + VERSION;
 const SHELL = [

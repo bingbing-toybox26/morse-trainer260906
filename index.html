@@ -171,14 +171,14 @@
 <label for="threshold">長押しの境界 <output id="thresholdValue">
 </output>
 </label>
-<input id="threshold" type="range" min="120" max="400" step="10" value="180">
+<input id="threshold" type="range" min="20" max="600" step="1" value="180">
 <p>この時間以上押すと「－」になります。</p>
 </div>
 <div class="setting">
 <label for="gap">文字の確定まで <output id="gapValue">
 </output>
 </label>
-<input id="gap" type="range" min="400" max="2000" step="50" value="900">
+<input id="gap" type="range" min="40" max="3000" step="1" value="900">
 <p>指を離してから次の文字になるまで。</p>
 </div>
 <div class="setting">
@@ -203,16 +203,20 @@
 <option value="short">3符号までの14文字</option>
 </select>
 </label>
-<label>お手本・受信速度 <select id="speed">
-<option value="6">ゆっくり · 6 WPM</option>
-<option value="10" selected>標準 · 10 WPM</option>
-<option value="15">速め · 15 WPM</option>
-<option value="20">挑戦 · 20 WPM</option>
+<label>お手本・高速入力 <input id="speed" type="number" min="5" max="60" step="1" value="10"> WPM
+</label>
+<label><input id="wpmSync" type="checkbox">入力判定・文字確定をWPMに連動
+</label>
+<label>入力方式 <select id="inputMode">
+<option value="hold">標準：KEY / Space の長押し</option>
+<option value="separate">高速：F＝短点 / J＝長点</option>
 </select>
 </label>
 <label class="switch-label">
 <input id="autoCommit" type="checkbox" checked>文字を自動で確定</label>
 </div>
+<p id="timingInfo" class="timing-info"></p>
+<p class="timing-info">WPMは5〜60。連動を外すと境界20〜600 ms・確定40〜3000 msを個別に調整できます。高速方式は1打鍵で1符号（長押し連打なし）。KEY / Spaceも引き続き使えます。</p>
 </details>
 <details class="help">
 <summary>使い方・オフライン利用</summary>
@@ -222,6 +226,7 @@
 <p>
 <strong>送信練習</strong>：表示された英字を打ちます。<strong>受信練習</strong>：音を聞き、A–Zで回答します。「調整と練習設定」で速さ・音量・出題範囲を変更できます。</p>
 <p>PCはSpaceで入力、Enterで確定、Backspaceで1符号戻す、Escでリセット。ボタンや設定にフォーカスがある間は通常のキー操作になります。KEYを選ぶか、画面の余白をクリックすると入力に戻れます。</p>
+<p><strong>高速練習</strong>：WPM連動では短点＝1200÷WPM ms、長点＝短点3個分、符号間＝1個分、文字確定＝3個分。長押しの判定境界は2個分です。F/J方式ではこの長さで音が鳴り、連続した打鍵を順に処理します。Enterは音が終わってから押してください。標準の単語間隔は7個分ですが、このアプリは英字1文字ずつの練習です。WPMは設定上の符号速度で、実測の通信速度ではありません。<a href="https://www.itu.int/rec/R-REC-M.1677-1-200910-I/en" target="_blank" rel="noopener noreferrer">タイミング比率：ITU-R M.1677-1</a></p>
 <p>「オフライン利用可」が表示されたら、次回から同じURLを通信なしでも開けます。対応ブラウザのメニューからインストール、または「ホーム画面に追加」もできます。初回は通信が必要で、ブラウザの保存データを削除すると再読み込みが必要です。</p>
 <p>設定はこの端末のブラウザ内に保存します。成績・履歴はページを閉じると消えます。練習内容を送信する処理、ログイン、広告はありません。サイトを開く際は配信元への通信が発生し、配信事業者がアクセス情報を記録する場合があります。</p>
 <p id="updateNotice" hidden>新しいバージョンがあります。練習を終えたら、このアプリのタブをすべて閉じて開き直してください。</p>

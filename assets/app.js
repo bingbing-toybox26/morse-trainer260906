@@ -4,13 +4,70 @@ const LETTERS=Object.fromEntries(Object.entries(CODES).map(([a,b])=>[b,a]));
 const $=id=>document.getElementById(id);
 const pretty=(code='')=>code.replaceAll('.','・').replaceAll('-','－');
 const state={mode:'free',code:'',target:'',pressed:false,invalid:false,source:null,pressTime:0,timer:0,frame:0,playing:false,playTimers:[],playToken:0,roundDone:false,history:[],count:0,stats:{send:{correct:0,total:0},receive:{correct:0,total:0}}};
-const settings={threshold:180,gap:900,frequency:600,volume:35,pool:'all',speed:10,autoCommit:true,hideTree:false,showGuide:true};
-try{const saved=JSON.parse(localStorage.getItem('morse-room-settings-v1')||'{}');for(const id of ['threshold','gap','frequency','volume','speed']){const n=Number(saved[id]);const bounds={threshold:[120,400],gap:[400,2000],frequency:[300,1000],volume:[0,100],speed:[6,20]}[id];if(Number.isFinite(n)&&n>=bounds[0]&&n<=bounds[1])settings[id]=n;}for(const id of ['autoCommit','hideTree','showGuide'])if(typeof saved[id]==='boolean')settings[id]=saved[id];if(['all','basic','short'].includes(saved.pool))settings.pool=saved.pool;}catch{}
+const settings={wpmSync:false,inputMode:'hold',threshold:180,gap:900,frequency:600,volume:35,pool:'all',speed:10,autoCommit:true,hideTree:false,showGuide:true};
+try{const saved=JSON.parse(localStorage.getItem('morse-room-settings-v1')||'{}');for(const id of ['threshold','gap','frequency','volume','speed']){const n=Number(saved[id]);const bounds={threshold:[20,600],gap:[40,3000],frequency:[300,1000],volume:[0,100],speed:[5,60]}[id];if(Number.isFinite(n)&&n>=bounds[0]&&n<=bounds[1])settings[id]=n;}for(const id of ['autoCommit','hideTree','showGuide','wpmSync'])if(typeof saved[id]==='boolean')settings[id]=saved[id];if(['hold','separate'].includes(saved.inputMode))settings.inputMode=saved.inputMode;if(['all','basic','short'].includes(saved.pool))settings.pool=saved.pool;}catch{}
+
+// PARIS is 50 units including the word gap: 60000 / 50 / WPM.
+function timing(){const unit=1200/settings.speed;return {unit,threshold:settings.wpmSync?2*unit:settings.threshold,gap:settings.wpmSync?3*unit:settings.gap};}
+const keyer={active:false,queue:[],timer:0,symbol:null,nextTime:0};
+state.releaseTime=0;
+function cancelKeyer(){clearTimeout(keyer.timer);keyer.timer=0;keyer.queue=[];keyer.active=false;keyer.symbol=null;keyer.nextTime=0;}
+function keySymbol(symbol){
+  if(document.hidden||settings.inputMode!=='separate'||state.playing||state.mode==='receive'||state.roundDone||(state.pressed&&state.source!=='keyer'))return;
+  if(keyer.queue.length>=4){feedback('入力待ちがいっぱいです。音が終わるまで待ってください。','bad');return;}
+  clearTimer();keyer.queue.push(symbol);
+  if(!keyer.active){keyer.active=true;keyer.timer=setTimeout(runKeyer,Math.max(0,keyer.nextTime-performance.now()));}
+}
+function runKeyer(){
+  if(!keyer.queue.length){keyer.active=false;keyer.symbol=null;syncKeyPanel();armCommit();return;}
+  keyer.active=true;keyer.symbol=keyer.queue.shift();
+  const {unit}=timing(),duration=unit*(keyer.symbol==='.'?1:3);
+  beginPress('keyer');
+  // End on the audio clock, independently of UI timer jitter.
+  if(voice){const t=audioContext.currentTime+duration/1000;voice.gain.gain.setValueAtTime(settings.volume/100*.22,Math.max(audioContext.currentTime,t-.004));voice.gain.gain.linearRampToValueAtTime(0,t);voice.oscillator.stop(t);voice.fixed=true;}
+  keyer.timer=setTimeout(()=>{
+    endPress('keyer');
+    if(state.invalid)keyer.queue=[];
+    keyer.nextTime=performance.now()+unit;
+    if(keyer.queue.length)keyer.timer=setTimeout(runKeyer,unit);
+    else {keyer.active=false;keyer.symbol=null;syncKeyPanel();armCommit();}
+  },duration);
+}
 let audioContext=null,voice=null;
+const playbackVoices=new Set();
+function scheduleTone(ctx,start,duration){
+  const oscillator=ctx.createOscillator(),gain=ctx.createGain(),end=start+duration;
+  oscillator.frequency.value=settings.frequency;
+  gain.gain.setValueAtTime(0,start);
+  gain.gain.linearRampToValueAtTime(settings.volume/100*.22,start+.004);
+  gain.gain.setValueAtTime(settings.volume/100*.22,end-.004);
+  gain.gain.linearRampToValueAtTime(0,end);
+  oscillator.connect(gain);gain.connect(ctx.destination);
+  const v={oscillator,gain,start,end};playbackVoices.add(v);
+  oscillator.onended=()=>{oscillator.disconnect();gain.disconnect();playbackVoices.delete(v);};
+  oscillator.start(start);oscillator.stop(end);
+}
+
 function audioReady(){try{audioContext ||= new (window.AudioContext||window.webkitAudioContext)();if(audioContext.state==='suspended')audioContext.resume().catch(()=>audioError());return audioContext;}catch{audioError();return null;}}
 function audioError(){feedback('音声を開始できませんでした。ブラウザの音声設定を確認してください。','bad');}
-function startTone(){stopTone();const ctx=audioReady();if(!ctx)return;const oscillator=ctx.createOscillator(),gain=ctx.createGain();oscillator.type='sine';oscillator.frequency.value=settings.frequency;gain.gain.setValueAtTime(0,ctx.currentTime);gain.gain.linearRampToValueAtTime(settings.volume/100*.22,ctx.currentTime+.006);oscillator.connect(gain);gain.connect(ctx.destination);oscillator.start();voice={oscillator,gain};}
-function stopTone(){if(!voice)return;const v=voice;voice=null;try{const t=audioContext.currentTime;v.gain.gain.cancelScheduledValues(t);v.gain.gain.setValueAtTime(v.gain.gain.value,t);v.gain.gain.linearRampToValueAtTime(0,t+.008);v.oscillator.stop(t+.012);v.oscillator.onended=()=>{v.oscillator.disconnect();v.gain.disconnect();};}catch{}}
+function startTone(){stopTone();const ctx=audioReady();if(!ctx)return;const oscillator=ctx.createOscillator(),gain=ctx.createGain();oscillator.type='sine';oscillator.frequency.value=settings.frequency;gain.gain.setValueAtTime(0,ctx.currentTime);gain.gain.linearRampToValueAtTime(settings.volume/100*.22,ctx.currentTime+.006);oscillator.connect(gain);gain.connect(ctx.destination);oscillator.onended=()=>{oscillator.disconnect();gain.disconnect();};oscillator.start();voice={oscillator,gain};}
+function stopTone(){if(!voice)return;const v=voice;voice=null;if(v.fixed){try{v.oscillator.stop();}catch{}return;}try{const t=audioContext.currentTime;v.gain.gain.cancelScheduledValues(t);v.gain.gain.setValueAtTime(v.gain.gain.value,t);v.gain.gain.linearRampToValueAtTime(0,t+.008);v.oscillator.stop(t+.012);v.oscillator.onended=()=>{v.oscillator.disconnect();v.gain.disconnect();};}catch{}}
+function updatePlaybackSound(id){
+  if(!audioContext)return;
+  const now=audioContext.currentTime;
+  for(const v of playbackVoices){
+    if(v.end<=now)continue;
+    if(id==='frequency'){v.oscillator.frequency.setTargetAtTime(settings.frequency,now,.01);continue;}
+    if(id!=='volume')continue;
+    const start=Math.max(now,v.start),attack=Math.min(start+.004,v.end);
+    v.gain.gain.cancelScheduledValues(now);
+    v.gain.gain.setValueAtTime(v.start>now?0:v.gain.gain.value,now);
+    if(v.start>now)v.gain.gain.setValueAtTime(0,start);
+    v.gain.gain.linearRampToValueAtTime(settings.volume/100*.22,attack);
+    if(v.end-.004>attack)v.gain.gain.setValueAtTime(settings.volume/100*.22,v.end-.004);
+    v.gain.gain.linearRampToValueAtTime(0,v.end);
+  }
+}
 function signal(on){$('signalLed').classList.toggle('on',on);$('boardStatus').textContent=on?'SIGNAL ON':state.playing?'LISTENING…':'READY TO TRANSMIT';}
 const svgNS='http://www.w3.org/2000/svg';
 function svgEl(name,attrs,parent){const el=document.createElementNS(svgNS,name);for(const [k,v]of Object.entries(attrs))el.setAttribute(k,v);parent.append(el);return el;}
@@ -39,23 +96,51 @@ function feedback(text,type=''){syncKeyPanel();$('feedback').textContent=text;$(
 function renderInput(){syncKeyPanel();renderTree();if(state.mode==='free'){$('letter').textContent=state.code?(settings.hideTree?'?':LETTERS[state.code]||'?'):'—';$('symbols').textContent=state.code?pretty(state.code):'···';}else if(state.mode==='send'){$('symbols').textContent=state.code?pretty(state.code):(settings.showGuide?pretty(CODES[state.target]):'···');}$('mainAction').disabled=state.mode==='free'&&!state.code;$('commitAction').disabled=!state.code||state.playing||state.roundDone;}
 function clearTimer(){clearTimeout(state.timer);state.timer=0;}
 function resetInput(){clearTimer();state.code='';state.invalid=false;renderInput();$('holdMeter').style.width='0%';}
-function armCommit(){clearTimer();if(settings.autoCommit&&state.code&&!state.pressed&&!state.invalid)state.timer=setTimeout(commit,settings.gap);}
-function beginPress(source){if(document.hidden||state.pressed||state.playing||state.mode==='receive'||(state.mode==='send'&&state.roundDone))return;audioReady();clearTimer();state.pressed=true;state.source=source;state.pressTime=performance.now();$('keyButton').classList.add('pressed');startTone();signal(true);syncKeyPanel();function animate(){if(!state.pressed)return;const elapsed=performance.now()-state.pressTime;$('holdMeter').style.width=Math.min(100,elapsed/settings.threshold*60)+'%';$('keyTitle').textContent=elapsed>=settings.threshold?'長点 －':'短点 ・';$('dockSymbols').textContent=$('keyTitle').textContent;state.frame=requestAnimationFrame(animate);}animate();}
-function endPress(source,cancel=false){if(!state.pressed||(source&&state.source!==source))return;const duration=performance.now()-state.pressTime;state.pressed=false;state.source=null;cancelAnimationFrame(state.frame);stopTone();signal(false);$('keyButton').classList.remove('pressed');$('holdMeter').style.width='0%';$('keyTitle').textContent='押す長さで、音が変わる。';if(cancel){syncKeyPanel();armCommit();return;}const symbol=duration>=settings.threshold?'-':'.';const next=state.code+symbol;if(!LETTERS[next]){state.invalid=true;feedback('この先に英字はありません。⌫ で戻すか、Enter で確定してください。','bad');armCommit();return;}state.invalid=false;state.code=next;renderInput();feedback('入力：'+pretty(state.code)+(settings.autoCommit?'　少し待つと確定します。':'　Enter または「文字を確定」で確定。'));armCommit();}
-function undo(){if(state.pressed||state.playing||state.mode==='receive'||state.roundDone)return;clearTimer();state.invalid=false;state.code=state.code.slice(0,-1);renderInput();feedback('1符号戻しました。続けて入力できます。');armCommit();}
+function armCommit(){clearTimer();if(settings.autoCommit&&state.code&&!state.pressed&&!keyer.active&&!state.invalid&&!state.playing&&!document.hidden)state.timer=setTimeout(commit,Math.max(0,timing().gap-(performance.now()-state.releaseTime)));}
+function beginPress(source){if(document.hidden||(keyer.active&&source!=='keyer')||state.pressed||state.playing||state.mode==='receive'||(state.mode==='send'&&state.roundDone))return;audioReady();clearTimer();state.pressed=true;state.source=source;state.pressTime=performance.now();$('keyButton').classList.add('pressed');startTone();signal(true);syncKeyPanel();function animate(){if(!state.pressed)return;const elapsed=performance.now()-state.pressTime;$('holdMeter').style.width=Math.min(100,elapsed/timing().threshold*60)+'%';$('keyTitle').textContent=(source==='keyer'?keyer.symbol==='-':elapsed>=timing().threshold)?'長点 －':'短点 ・';$('dockSymbols').textContent=$('keyTitle').textContent;state.frame=requestAnimationFrame(animate);}animate();}
+function endPress(source,cancel=false){if(cancel&&!source)cancelKeyer();if(!state.pressed||(source&&state.source!==source))return;const duration=performance.now()-state.pressTime;state.pressed=false;state.source=null;cancelAnimationFrame(state.frame);stopTone();signal(false);$('keyButton').classList.remove('pressed');$('holdMeter').style.width='0%';$('keyTitle').textContent='押す長さで、音が変わる。';if(cancel){syncKeyPanel();armCommit();return;}state.releaseTime=performance.now();const symbol=source==='keyer'?keyer.symbol:duration>=timing().threshold?'-':'.';const next=state.code+symbol;if(!LETTERS[next]){state.invalid=true;feedback('この先に英字はありません。⌫ で戻すか、Enter で確定してください。','bad');armCommit();return;}state.invalid=false;state.code=next;renderInput();feedback('入力：'+pretty(state.code)+(settings.autoCommit?'　少し待つと確定します。':'　Enter または「文字を確定」で確定。'));armCommit();}
+function undo(){if(keyer.active||state.pressed||state.playing||state.mode==='receive'||state.roundDone)return;clearTimer();state.invalid=false;state.code=state.code.slice(0,-1);renderInput();feedback('1符号戻しました。続けて入力できます。');armCommit();}
 function addHistory(letter,code){state.count++;state.history.unshift({letter,code});state.history=state.history.slice(0,18);renderHistory();$('sessionCount').textContent=String(state.count).padStart(2,'0');}
 function renderHistory(){const h=$('history');h.replaceChildren();if(!state.history.length){const el=document.createElement('span');el.className='history-placeholder';el.textContent='ここに、あなたが打った文字が並びます。';h.append(el);}for(const entry of state.history){const el=document.createElement('div');el.className='history-item';const b=document.createElement('b'),small=document.createElement('small');b.textContent=entry.letter;small.textContent=pretty(entry.code);el.append(b,small);h.append(el);}}
 function renderStats(){const s=state.stats[state.mode];$('stats').hidden=!s;if(s){$('correctCount').textContent=s.correct;$('attemptCount').textContent=s.total;$('accuracy').textContent=s.total?Math.round(s.correct/s.total*100)+'%':'—';}}
-function commit(){clearTimer();if(state.pressed||state.playing||!state.code||state.mode==='receive'||state.roundDone)return;const code=state.code,letter=LETTERS[code];addHistory(letter,code);state.code='';state.invalid=false;$('commitAction').disabled=true;if(state.mode==='free'){renderTree(code);$('letter').textContent=letter;$('symbols').textContent=pretty(code);$('mainAction').disabled=true;feedback(letter+' を確定しました。次の文字を打ってみましょう。','good');}else{const s=state.stats.send;s.total++;if(letter===state.target){s.correct++;state.roundDone=true;$('commitAction').hidden=true;feedback('正解！ '+letter+' のリズムを覚えました。','good');$('otherAction').hidden=false;$('mainAction').textContent='お手本を聞く';$('keyButton').disabled=true;renderTree(code);}else{feedback(letter+' が入力されました。'+state.target+' にもう一度挑戦！','bad');renderTree(code);}$('symbols').textContent=pretty(code);renderStats();}}
+function commit(){clearTimer();if(keyer.active||state.pressed||state.playing||!state.code||state.mode==='receive'||state.roundDone)return;const code=state.code,letter=LETTERS[code];addHistory(letter,code);state.code='';state.invalid=false;$('commitAction').disabled=true;if(state.mode==='free'){renderTree(code);$('letter').textContent=letter;$('symbols').textContent=pretty(code);$('mainAction').disabled=true;feedback(letter+' を確定しました。次の文字を打ってみましょう。','good');}else{const s=state.stats.send;s.total++;if(letter===state.target){s.correct++;state.roundDone=true;$('commitAction').hidden=true;feedback('正解！ '+letter+' のリズムを覚えました。','good');$('otherAction').hidden=false;$('mainAction').textContent='お手本を聞く';$('keyButton').disabled=true;renderTree(code);}else{feedback(letter+' が入力されました。'+state.target+' にもう一度挑戦！','bad');renderTree(code);}$('symbols').textContent=pretty(code);renderStats();}}
 function chooseTarget(){const pool=Object.keys(CODES).filter(x=>settings.pool==='basic'?CODES[x].length<=2:settings.pool==='short'?CODES[x].length<=3:true);const candidates=pool.filter(x=>x!==state.target);state.target=candidates[Math.floor(Math.random()*candidates.length)];}
 function newRound(){endPress(null,true);stopPlayback();resetInput();state.roundDone=false;$('commitAction').hidden=state.mode!=='send';chooseTarget();$('answer').value='';$('answer').disabled=false;$('answerForm').querySelector('button').disabled=false;$('otherAction').hidden=true;$('revealAction').hidden=state.mode!=='receive';$('keyButton').disabled=state.mode==='receive';$('letter').textContent=state.mode==='send'?state.target:'?';$('symbols').textContent=state.mode==='send'&&settings.showGuide?pretty(CODES[state.target]):'···';$('mainAction').textContent=state.mode==='send'?'お手本を聞く':'音を聞く';$('mainAction').disabled=false;renderCover();renderTree('');feedback(state.mode==='send'?'表示された文字を、KEY またはSpaceで打ちましょう。':'「音を聞く」を押して、聞こえた文字を回答しましょう。');renderStats();}
-function stopPlayback(){state.playToken++;for(const t of state.playTimers)clearTimeout(t);state.playTimers=[];state.playing=false;stopTone();signal(false);$('mainAction').disabled=state.mode==='free'&&!state.code;$('commitAction').disabled=!state.code||state.playing||state.roundDone;syncKeyPanel();}
-function playTarget(){if(state.playing||state.pressed)return;const ctx=audioReady();if(!ctx)return;clearTimer();const previousFeedback={text:$('feedback').textContent,type:$('feedback').classList.contains('good')?'good':$('feedback').classList.contains('bad')?'bad':''};state.playing=true;$('commitAction').disabled=true;const token=++state.playToken;$('mainAction').disabled=true;const code=CODES[state.target],unit=1200/settings.speed;let cursor=200;for(const ch of code){const start=cursor,duration=unit*(ch==='.'?1:3);state.playTimers.push(setTimeout(()=>{if(token!==state.playToken)return;startTone();signal(true);},start));state.playTimers.push(setTimeout(()=>{if(token!==state.playToken)return;stopTone();signal(false);},start+duration));cursor+=duration+unit;}state.playTimers.push(setTimeout(()=>{if(token!==state.playToken)return;state.playing=false;state.playTimers=[];signal(false);$('mainAction').disabled=false;$('mainAction').textContent=state.mode==='receive'?'もう一度聞く':'お手本を聞く';if(state.mode==='receive'&&!state.roundDone){feedback('聞こえた文字を入力してください。もう一度聞くこともできます。');$('answer').focus({preventScroll:true});}else{feedback(previousFeedback.text,previousFeedback.type);$('commitAction').disabled=!state.code||state.roundDone;armCommit();}},cursor));feedback('再生中… 音の長さと間隔を聞いてみましょう。');}
+function stopPlayback(){for(const v of playbackVoices){v.gain.gain.cancelScheduledValues(audioContext.currentTime);v.gain.gain.setValueAtTime(0,audioContext.currentTime);v.oscillator.stop();}playbackVoices.clear();state.playToken++;for(const t of state.playTimers)clearTimeout(t);state.playTimers=[];state.playing=false;stopTone();signal(false);$('mainAction').disabled=state.mode==='free'&&!state.code;$('commitAction').disabled=!state.code||state.playing||state.roundDone;syncKeyPanel();}
+function playTarget(){if(keyer.active||state.playing||state.pressed)return;const ctx=audioReady();if(!ctx)return;clearTimer();const previousFeedback={text:$('feedback').textContent,type:$('feedback').classList.contains('good')?'good':$('feedback').classList.contains('bad')?'bad':''};state.playing=true;$('commitAction').disabled=true;const token=++state.playToken;$('mainAction').disabled=true;const code=CODES[state.target],unit=1200/settings.speed;const audioStart=ctx.currentTime;let cursor=200;for(const ch of code){const start=cursor,duration=unit*(ch==='.'?1:3);scheduleTone(ctx,audioStart+start/1000,duration/1000);state.playTimers.push(setTimeout(()=>{if(token!==state.playToken)return;signal(true);},start));state.playTimers.push(setTimeout(()=>{if(token!==state.playToken)return;signal(false);},start+duration));cursor+=duration+unit;}state.playTimers.push(setTimeout(()=>{if(token!==state.playToken)return;state.playing=false;state.playTimers=[];signal(false);$('mainAction').disabled=false;$('mainAction').textContent=state.mode==='receive'?'もう一度聞く':'お手本を聞く';if(state.mode==='receive'&&!state.roundDone){feedback('聞こえた文字を入力してください。もう一度聞くこともできます。');$('answer').focus({preventScroll:true});}else{feedback(previousFeedback.text,previousFeedback.type);$('commitAction').disabled=!state.code||state.roundDone;armCommit();}},cursor));feedback('再生中… 音の長さと間隔を聞いてみましょう。');}
 function answerReceive(reveal=false){if(state.roundDone)return;const answer=$('answer').value.trim().toUpperCase();if(!reveal&&!/^[A-Z]$/.test(answer)){feedback('A から Z の英字を1文字入力してください。','bad');return;}stopPlayback();state.roundDone=true;const s=state.stats.receive;s.total++;const good=!reveal&&answer===state.target;if(good)s.correct++;$('letter').textContent=state.target;$('symbols').textContent=pretty(CODES[state.target]);feedback(reveal?'答えは '+state.target+'。音をもう一度聞いて覚えましょう。':good?'正解！ 音を聞き分けられました。':'入力は '+answer+'。正解は '+state.target+' でした。',good?'good':reveal?'':'bad');$('answer').disabled=true;$('answerForm').querySelector('button').disabled=true;$('otherAction').hidden=false;$('revealAction').hidden=true;renderCover();renderTree(CODES[state.target]);renderStats();}
-function setMode(mode){document.body.dataset.mode=mode;endPress(null,true);stopPlayback();state.mode=mode;state.roundDone=false;resetInput();document.querySelectorAll('.tab').forEach(b=>{const active=b.dataset.mode===mode;b.classList.toggle('active',active);b.setAttribute('aria-selected',active);if(active)$('practicePanel').setAttribute('aria-labelledby',b.id);b.tabIndex=active?0:-1;});$('answerForm').hidden=mode!=='receive';$('commitAction').hidden=mode!=='send';$('guideRow').hidden=mode!=='send';$('revealAction').hidden=mode!=='receive';$('otherAction').hidden=true;const info={free:['FREE PLAY','自分のペースで','まずは、打ってみよう。','KEY またはスペースキーで音が鳴ります。<br>指を離すと、ツリーが一歩進みます。','CURRENT LETTER'],send:['TRANSMIT PRACTICE','文字 → 符号','この文字、打てるかな？','表示された文字をモールスで入力。<br>お手本の音も聞いてみましょう。','YOUR TARGET'],receive:['LISTENING PRACTICE','音 → 文字','耳で、文字を見つけよう。','モールス音を聞いて、英字で回答。<br>何度聞いても大丈夫です。','MYSTERY LETTER']}[mode];['modeKicker','modeBadge','panelTitle','panelDesc','readoutLabel'].forEach((id,i)=>$(id).innerHTML=info[i]);$('keyButton').disabled=mode==='receive';$('keyHelp').innerHTML=mode==='receive'?'「音を聞く」で再生します。<br>回答欄に英字を入力して Enter。':'短押し ・ ／ 長押し －<br>'+(settings.autoCommit?'ひと呼吸おくと、1文字が確定します。':'Enter で1文字を確定します。');if(mode==='free'){$('mainAction').textContent='文字を確定 ↵';feedback('短点・長点を組み合わせてみましょう。');renderInput();renderCover();renderStats();}else newRound();}
+function setMode(mode){document.body.dataset.mode=mode;endPress(null,true);stopPlayback();state.mode=mode;state.roundDone=false;resetInput();document.querySelectorAll('.tab').forEach(b=>{const active=b.dataset.mode===mode;b.classList.toggle('active',active);b.setAttribute('aria-selected',active);if(active)$('practicePanel').setAttribute('aria-labelledby',b.id);b.tabIndex=active?0:-1;});$('answerForm').hidden=mode!=='receive';$('commitAction').hidden=mode!=='send';$('guideRow').hidden=mode!=='send';$('revealAction').hidden=mode!=='receive';$('otherAction').hidden=true;const info={free:['FREE PLAY','自分のペースで','まずは、打ってみよう。','KEY またはスペースキーで音が鳴ります。<br>指を離すと、ツリーが一歩進みます。','CURRENT LETTER'],send:['TRANSMIT PRACTICE','文字 → 符号','この文字、打てるかな？','表示された文字をモールスで入力。<br>お手本の音も聞いてみましょう。','YOUR TARGET'],receive:['LISTENING PRACTICE','音 → 文字','耳で、文字を見つけよう。','モールス音を聞いて、英字で回答。<br>何度聞いても大丈夫です。','MYSTERY LETTER']}[mode];['modeKicker','modeBadge','panelTitle','panelDesc','readoutLabel'].forEach((id,i)=>$(id).innerHTML=info[i]);$('keyButton').disabled=mode==='receive';$('keyHelp').innerHTML=mode==='receive'?'「音を聞く」で再生します。<br>回答欄に英字を入力して Enter。':'短押し ・ ／ 長押し －<br>'+(settings.autoCommit?'ひと呼吸おくと、1文字が確定します。':'Enter で1文字を確定します。');if(mode==='free'){$('mainAction').textContent='文字を確定 ↵';feedback('短点・長点を組み合わせてみましょう。');renderInput();renderCover();renderStats();}else newRound();updateSettings();}
 function saveSettings(){try{localStorage.setItem('morse-room-settings-v1',JSON.stringify(settings));}catch{}}
-function updateSettings(){for(const id of ['threshold','gap','frequency','volume']){$(id).value=settings[id];$(id+'Value').textContent=settings[id]+(id==='frequency'?' Hz':id==='volume'?' %':' ms');}for(const id of ['autoCommit','hideTree','showGuide'])$(id).checked=settings[id];$('pool').value=settings.pool;$('speed').value=settings.speed;}
-for(const id of Object.keys(settings)){$(id).addEventListener('input',()=>{const el=$(id);settings[id]=el.type==='checkbox'?el.checked:id==='pool'?el.value:Number(el.value);saveSettings();updateSettings();if(id==='hideTree'){renderCover();if(state.code)renderInput();}if(id==='showGuide'&&state.mode==='send'&&!state.code)$('symbols').textContent=settings.showGuide?pretty(CODES[state.target]):'···';if(id==='pool'&&state.mode!=='free')newRound();if(id==='autoCommit'||id==='gap'){armCommit();if(state.mode!=='receive')$('keyHelp').innerHTML='短押し ・ ／ 長押し －<br>'+(settings.autoCommit?'ひと呼吸おくと、1文字が確定します。':'Enter で1文字を確定します。');}if(voice&&id==='volume')voice.gain.gain.setTargetAtTime(settings.volume/100*.22,audioContext.currentTime,.01);if(voice&&id==='frequency')voice.oscillator.frequency.setTargetAtTime(settings.frequency,audioContext.currentTime,.01);});}
+function updateSettings(){
+  const effective=timing();
+  for(const id of ['threshold','gap','frequency','volume']){
+    const value=id==='threshold'||id==='gap'?effective[id]:settings[id];
+    $(id).value=value;
+    $(id+'Value').textContent=Number(value.toFixed(1))+(id==='frequency'?' Hz':id==='volume'?' %':' ms');
+  }
+  for(const id of ['autoCommit','hideTree','showGuide','wpmSync'])$(id).checked=settings[id];
+  $('pool').value=settings.pool;$('speed').value=settings.speed;$('inputMode').value=settings.inputMode;
+  $('threshold').disabled=settings.wpmSync;$('gap').disabled=settings.wpmSync;
+  const ms=n=>Number(n.toFixed(1))+' ms';
+  $('timingInfo').textContent=settings.speed+' WPM：短点 '+ms(effective.unit)+' ／ 長点 '+ms(effective.unit*3)+' ／ 符号間 '+ms(effective.unit)+' ／ 標準文字間 '+ms(effective.unit*3)+'。現在の文字確定：'+(settings.autoCommit?ms(effective.gap):'手動')+'。';
+  if(state.mode!=='receive')$('keyHelp').innerHTML=(settings.inputMode==='separate'?'F：短点 ・ ／ J：長点 －（KEY / Spaceも可）':'短押し ・ ／ 長押し －')+'<br>'+(settings.autoCommit?'指を離して '+ms(effective.gap)+' で確定。':'Enter で1文字を確定します。');
+  syncKeyPanel();
+}
+for(const id of Object.keys(settings))$(id).addEventListener('input',()=>{
+  const el=$(id);
+  if(el.type==='number'&&(!el.value||!el.validity.valid))return;
+  const timingChange=['wpmSync','speed','threshold','gap','inputMode'].includes(id);
+  if(timingChange){endPress(null,true);stopPlayback();}
+  settings[id]=el.type==='checkbox'?el.checked:['pool','inputMode'].includes(id)?el.value:Number(el.value);
+  saveSettings();updateSettings();updatePlaybackSound(id);
+  if(id==='hideTree'){renderCover();if(state.code)renderInput();}
+  if(id==='showGuide'&&state.mode==='send'&&!state.code)$('symbols').textContent=settings.showGuide?pretty(CODES[state.target]):'···';
+  if(id==='pool'&&state.mode!=='free')newRound();
+  if(timingChange||id==='autoCommit')armCommit();
+  if(voice&&id==='volume')voice.gain.gain.setTargetAtTime(settings.volume/100*.22,audioContext.currentTime,.01);
+  if(voice&&id==='frequency')voice.oscillator.frequency.setTargetAtTime(settings.frequency,audioContext.currentTime,.01);
+});
+$('speed').addEventListener('change',()=>updateSettings());
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));
 $('commitAction').addEventListener('click',commit);$('mainAction').addEventListener('click',()=>state.mode==='free'?commit():playTarget());$('otherAction').addEventListener('click',newRound);$('answerForm').addEventListener('submit',e=>{e.preventDefault();answerReceive();});$('revealAction').addEventListener('click',()=>answerReceive(true));$('undoButton').addEventListener('click',undo);$('clearButton').addEventListener('click',()=>{endPress(null,true);stopPlayback();resetInput();feedback('入力をリセットしました。');});$('clearHistory').addEventListener('click',()=>{state.history=[];renderHistory();});
 // One owner per press: a second finger or keyboard event cannot end another input.
@@ -90,6 +175,7 @@ document.addEventListener('keydown',e=>{
     return;
   }
   if(isEditing(e.target))return;
+  if(settings.inputMode==='separate'&&(e.code==='KeyF'||e.code==='KeyJ')){e.preventDefault();if(!e.repeat)keySymbol(e.code==='KeyF'?'.':'-');}
   if(e.code==='Space'){e.preventDefault();if(!e.repeat)beginPress('keyboard');}
   if(e.code==='Backspace'&&state.mode!=='receive'){e.preventDefault();undo();}
   if(e.code==='Enter'&&state.mode!=='receive'){
@@ -111,9 +197,9 @@ document.querySelectorAll('.tab').forEach((tab,index,tabs)=>tab.addEventListener
 }));
 $('dockCommit').addEventListener('click',()=>state.roundDone?newRound():commit());
 function syncKeyPanel(){
-  const blocked=state.mode==='receive'||state.playing||state.pressed;
+  const blocked=state.mode==='receive'||state.playing||state.pressed||keyer.active;
   $('dockLetter').textContent=state.mode==='send'?state.target:state.code?(settings.hideTree?'?':LETTERS[state.code]||'?'):'—';
-  $('dockSymbols').textContent=state.code?pretty(state.code):state.roundDone?'正解！ 次の文字へ':'短く ・ ／ 長く －';
+  $('dockSymbols').textContent=state.code?pretty(state.code):state.roundDone?'正解！ 次の文字へ':(settings.inputMode==='separate'?'F ・ ／ J －':'短く ・ ／ 長く －');
   $('dockCommit').textContent=state.roundDone?'次へ →':'確定 ↵';
   $('dockCommit').disabled=blocked||(!state.roundDone&&!state.code);
   $('undoButton').disabled=blocked||state.roundDone||!state.code;
